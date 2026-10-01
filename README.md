@@ -6,7 +6,8 @@ written in Python with Tkinter (no third-party dependencies).
 
 ## Features
 - Pomodoro (25 min), Short Break (5 min) and Long Break (15 min) defaults, all adjustable
-- Start / Pause, Reset and Skip; when a period ends the timer waits at 00:00 and Skip becomes **Next**
+- Start / Pause, Reset and Skip; when a period ends the timer waits at 00:00 and Skip becomes
+  **Next**, which switches to the next period and starts it
 - Automatic cycle: short break after each pomodoro, long break after every 4 (configurable)
 - Session card showing the steps of the cycle, the current period's progress and what comes next
 - Soft "summer morning sky" gradient per mode

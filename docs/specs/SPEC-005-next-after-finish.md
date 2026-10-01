@@ -29,3 +29,5 @@ When a period ended the app silently jumped to the next mode, so you couldn't se
 
 ## Notes
 Reset on a finished pomodoro restarts the same pomodoro; it stays counted.
+
+**Changed by [SPEC-008](SPEC-008-next-auto-starts.md):** Next now also starts the next period.

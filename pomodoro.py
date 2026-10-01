@@ -557,7 +557,10 @@ class PomodoroApp:
 
     def next_step(self):
         self.stop_sound()
+        finished = self.session.finished
         self.session.advance()
+        if finished:  # Next (after time's up) starts the following period right away; Skip doesn't
+            self.session.start()
         self.refresh()
 
     def select_mode(self, mode):
