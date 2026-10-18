@@ -8,5 +8,7 @@
 | [ADR-0004](ADR-0004-settings-json-in-appdata.md) | Store settings as JSON in `%APPDATA%\Pomodoro` | Accepted | 2026-09-30 |
 | [ADR-0005](ADR-0005-canvas-based-timer-view.md) | Draw the timer view on a Tk Canvas | Accepted | 2026-10-01 |
 | [ADR-0006](ADR-0006-settings-as-in-window-view.md) | Settings as a view swapped in the main window | Accepted | 2026-10-01 |
+| [ADR-0007](ADR-0007-work-log-format-and-location.md) | Work log as monthly append-only text files in Documents | Accepted | 2026-10-02 |
+| [ADR-0008](ADR-0008-task-state-and-opt-in.md) | Opt-in task feature with separate task state and pure logic classes | Accepted | 2026-10-02 |
 
-Next free ID: **ADR-0007**
+Next free ID: **ADR-0009**

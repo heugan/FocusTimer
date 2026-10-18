@@ -10,5 +10,10 @@
 | [SPEC-006](SPEC-006-session-progress.md) | Show progress through the pomodoro session | Done | Medium | ui | [0005](../adr/ADR-0005-canvas-based-timer-view.md) |
 | [SPEC-007](SPEC-007-settings-view.md) | Move settings to their own view behind a gear icon | Done | Medium | ui, settings | [0006](../adr/ADR-0006-settings-as-in-window-view.md) |
 | [SPEC-008](SPEC-008-next-auto-starts.md) | Next starts the following period automatically | Done | Medium | logic, ui | |
+| [SPEC-009](SPEC-009-tasks-and-work-log.md) | Current task, pause note and work log (opt-in) | Done | High | logic, ui, settings, log | [0007](../adr/ADR-0007-work-log-format-and-location.md), [0008](../adr/ADR-0008-task-state-and-opt-in.md) |
+| [SPEC-010](SPEC-010-park-and-return.md) | Switch to another task on interruption, and return to parked tasks | Todo | Medium | logic, ui, log | [0007](../adr/ADR-0007-work-log-format-and-location.md), [0008](../adr/ADR-0008-task-state-and-opt-in.md) |
+| [SPEC-011](SPEC-011-safe-text-input.md) | Safe free-text input and personal-data notice | Done | High | security, logic, ui | [0007](../adr/ADR-0007-work-log-format-and-location.md), [0008](../adr/ADR-0008-task-state-and-opt-in.md) |
 
-Next free ID: **SPEC-009**
+Suggested order: SPEC-011 → SPEC-009 → SPEC-010.
+
+Next free ID: **SPEC-012**

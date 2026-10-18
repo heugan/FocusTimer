@@ -6,6 +6,7 @@ Lightweight work tracking in plain Markdown, modelled loosely on Linear / Azure 
 |---|---|---|
 | [`specs/`](specs/README.md) | One file per piece of work: problem, scope, acceptance criteria, status | Linear issue / ADO user story |
 | [`adr/`](adr/README.md) | Architecture Decision Records: one file per significant technical decision | ADO wiki decision log |
+| [`codex-onboarding.md`](codex-onboarding.md) | Local Codex setup, testing and GUI verification | Project onboarding |
 
 ## Specs
 

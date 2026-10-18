@@ -14,6 +14,7 @@ written in Python with Tkinter (no third-party dependencies).
 - Alert sound (Chime, Alarm, Digital beep) with a Test button, adjustable volume (default 50 %)
   and length (default 5 s); the window comes to the front when a period ends
 - Settings in their own view behind the ⚙ icon, saved to `%APPDATA%\Pomodoro\settings.json`
+- Optional tasks and monthly work log, with pause notes to help you resume focus
 - Shortcuts: `Space` start/pause, `R` reset, `N` next/skip, `Esc` leave settings
 
 ## Run

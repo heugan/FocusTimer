@@ -12,8 +12,11 @@ import os
 import tempfile
 import time
 import tkinter as tk
+import unicodedata
+import uuid
 import wave
 from array import array
+from datetime import datetime
 from dataclasses import asdict, dataclass, fields
 from pathlib import Path
 from typing import Callable
@@ -26,6 +29,16 @@ except ImportError:  # not on Windows
 POMODORO, SHORT, LONG = "pomodoro", "short", "long"
 MODE_LABELS = {POMODORO: "Pomodoro", SHORT: "Short Break", LONG: "Long Break"}
 MODE_COLORS = {POMODORO: "#ba4949", SHORT: "#38858a", LONG: "#397097"}
+TEXT_LIMIT = 200
+
+
+def clean_text(text: str, limit: int = TEXT_LIMIT) -> str:
+    """Normalise free text so it is safe to display, persist and log."""
+    text = unicodedata.normalize("NFC", text)
+    text = "".join(" " if char in "\r\n\t\v\f\u0085\u2028\u2029" else char for char in text)
+    text = "".join(char for char in text if unicodedata.category(char) not in {"Cc", "Cf", "Cs", "Co"})
+    text = text.replace("|", "/")
+    return " ".join(text.split())[:limit].strip()
 
 
 def settings_path() -> Path:
@@ -44,6 +57,7 @@ class Settings:
     sound: str = "chime"
     sound_seconds: int = 5
     volume: int = 50  # percent of full synthesized amplitude
+    work_log: bool = False
 
     def minutes_for(self, mode: str) -> int:
         return {POMODORO: self.pomodoro_min,
@@ -60,7 +74,9 @@ class Settings:
             for f in fields(cls):
                 default = getattr(defaults, f.name)
                 v = data.get(f.name, default)
-                if isinstance(default, int):
+                if isinstance(default, bool):
+                    ok = isinstance(v, bool)
+                elif isinstance(default, int):
                     ok = isinstance(v, int) and not isinstance(v, bool) and v >= 1
                 else:
                     ok = v in SOUND_NAMES
@@ -76,6 +92,57 @@ class Settings:
             path.write_text(json.dumps(asdict(self), indent=2), encoding="utf-8")
         except OSError:
             pass
+
+
+# --------------------------------------------------------------------------- work log
+
+def documents_path() -> Path:
+    """Return the Windows Documents folder, including redirected locations."""
+    if os.name == "nt":
+        try:
+            import ctypes
+            class GUID(ctypes.Structure):
+                _fields_ = [("Data1", ctypes.c_ulong), ("Data2", ctypes.c_ushort),
+                           ("Data3", ctypes.c_ushort), ("Data4", ctypes.c_ubyte * 8)]
+
+            folder_id = uuid.UUID("{FDD39AD0-238F-46AF-ADB4-6C85480369C7}")
+            guid = GUID(folder_id.time_low, folder_id.time_mid, folder_id.time_hi_version,
+                        (ctypes.c_ubyte * 8).from_buffer_copy(folder_id.bytes[8:]))
+            path = ctypes.c_wchar_p()
+            if ctypes.windll.shell32.SHGetKnownFolderPath(ctypes.byref(guid), 0, None, ctypes.byref(path)) == 0:
+                try:
+                    return Path(path.value)
+                finally:
+                    ctypes.windll.ole32.CoTaskMemFree(path)
+        except (AttributeError, OSError):
+            pass
+    return Path.home() / "Documents"
+
+
+class WorkLog:
+    """Append-only monthly work log with an injectable wall clock and folder."""
+
+    def __init__(self, folder: Path | None = None, clock: Callable[[], datetime] = datetime.now):
+        self.folder = folder or documents_path() / "FocusTimer"
+        self.clock = clock
+
+    @staticmethod
+    def format_line(event: str, text: str = "", when: datetime | None = None) -> str:
+        when = when or datetime.now()
+        text = clean_text(text)
+        suffix = f" {text}" if text else ""
+        return f"{when:%Y-%m-%d %H:%M} [{event}]{suffix}"
+
+    def write(self, event: str, text: str = "") -> bool:
+        when = self.clock()
+        path = self.folder / f"worklog-{when:%Y-%m}.txt"
+        try:
+            path.parent.mkdir(parents=True, exist_ok=True)
+            with path.open("a", encoding="utf-8", newline="\n") as file:
+                file.write(self.format_line(event, text, when) + "\n")
+            return True
+        except OSError:
+            return False
 
 
 # --------------------------------------------------------------------------- sounds
@@ -271,6 +338,10 @@ class PomodoroSession:
         """Fraction (0-1) of the current period that has elapsed."""
         return 1 - self.remaining / self.duration()
 
+    def elapsed_minutes(self) -> int:
+        """Whole active minutes in the current period; paused time is excluded."""
+        return max(0, int((self.duration() - self.remaining) // 60))
+
     def cycle_steps(self) -> tuple[list[str], int]:
         """Modes of one full cycle (P S P S ... P L) and the index of the current step."""
         n = self.settings.pomodoros_before_long
@@ -306,6 +377,7 @@ THEMES = {
 INK, INK_SOFT, PANEL = "#1f3a5f", "#4a6382", "#f6f8fb"
 FONT = "Segoe UI"
 WIDTH, HEIGHT = 400, 520  # logical pixels at 96 dpi
+TASK_LAYOUT_HEIGHT = 70
 STATUS = {POMODORO: "Focus", SHORT: "Short break – stretch your legs", LONG: "Long break – well done"}
 
 
@@ -331,10 +403,15 @@ class PomodoroApp:
         self.settings = Settings.load()
         self.session = PomodoroSession(self.settings)
         self.player = SoundPlayer()
+        self.work_log = WorkLog()
         self.sound_playing = None  # after-id that clears the "Stop" state
         self.k = root.winfo_fpixels("1i") / 96  # DPI scale for canvas coordinates
         self.view = "timer"
         self._theme_mode = None
+        self._task_layout_offset = 0
+        self.current_note = ""
+        self.committed_task = ""
+        self.pause_panel_visible = False
 
         root.title("Pomodoro")
         root.resizable(False, False)
@@ -343,18 +420,20 @@ class PomodoroApp:
 
         self._build_timer_view()
         self._build_settings_view()
+        self._set_task_layout()
         self.canvas.pack()
 
         # Focused buttons/inputs handle their own keys; avoid double-triggering
         def shortcut(view, action):
             def handler(e):
-                if self.view == view and not isinstance(e.widget, (tk.Button, tk.Spinbox, tk.Scale)):
+                if self.view == view and not isinstance(e.widget, (tk.Button, tk.Spinbox, tk.Scale, tk.Entry)):
                     action()
             return handler
         root.bind("<space>", shortcut("timer", self.toggle))
         root.bind("<KeyPress-r>", shortcut("timer", self.reset))
         root.bind("<KeyPress-n>", shortcut("timer", self.next_step))
-        root.bind("<Escape>", shortcut("settings", self.show_timer))
+        root.bind("<Escape>", lambda e: self.cancel_pause_panel() if self.pause_panel_visible else (
+            self.show_timer() if self.view == "settings" else None))
         root.bind("<Return>", lambda e: self.apply_settings())
 
         self.refresh()
@@ -402,27 +481,160 @@ class PomodoroApp:
         self.reset_button = tk.Button(c, text="Reset", command=self.reset, fg=INK, **btn)
         self.next_button = tk.Button(c, text="Skip", command=self.next_step, fg=INK, **btn)
         for b, dx in ((self.start_button, -105), (self.reset_button, 0), (self.next_button, 105)):
-            c.create_window(px(WIDTH / 2 + dx), px(235), window=b)
+            c.create_window(px(WIDTH / 2 + dx), px(235), window=b, tags=("controls",))
+
+        # Optional task UI. It remains hidden until the opt-in setting is enabled.
+        self.task_var = tk.StringVar()
+        self.task_var.trace_add("write", lambda *_: self._clean_var(self.task_var))
+        self.task_entry = tk.Entry(c, textvariable=self.task_var, width=31, font=(FONT, 10), relief="flat")
+        self.task_placeholder = False
+        self.task_entry.bind("<FocusIn>", self.task_focus_in)
+        self.task_entry.bind("<FocusOut>", self.task_focus_out)
+        self.task_entry.bind("<Return>", self.commit_task)
+        self.task_window = c.create_window(px(174), px(215), window=self.task_entry, tags=("task",))
+        self.complete_button = tk.Button(c, text="✓", width=2, command=self.complete_task, bg="white",
+                                         relief="flat", cursor="hand2", font=(FONT, 10, "bold"))
+        self.complete_window = c.create_window(px(340), px(215), window=self.complete_button, tags=("task",))
+        self.notice_text = c.create_text(px(WIDTH / 2), px(242), anchor="n", fill=INK_SOFT,
+                                         font=(FONT, 8), tags=("task",),
+                                         text="Don't enter personal data – the log is stored unencrypted in Documents\\FocusTimer.")
+        self.note_text = c.create_text(px(WIDTH / 2), px(265), fill=INK_SOFT, font=(FONT, 9), tags=("task",))
+        self._show_task_placeholder()
+
+        pause = self.pause_panel = tk.Frame(c, bg=PANEL)
+        self.pause_var = tk.StringVar()
+        self.pause_var.trace_add("write", lambda *_: self._clean_var(self.pause_var))
+        tk.Label(pause, text="Where were you? (optional)", bg=PANEL, fg=INK_SOFT,
+                 font=(FONT, 8)).grid(row=0, column=0, columnspan=2, sticky="w")
+        self.pause_entry = tk.Entry(pause, textvariable=self.pause_var, width=29, font=(FONT, 10))
+        self.pause_entry.grid(row=1, column=0, padx=(0, 6))
+        self.pause_entry.bind("<Return>", self.save_pause_note)
+        tk.Button(pause, text="Pause", command=self.save_pause_note, bg="white", relief="flat").grid(row=1, column=1)
+        tk.Label(pause, text="Don't enter personal data – the log is stored unencrypted in Documents\\FocusTimer.",
+                 bg=PANEL, fg=INK_SOFT, font=(FONT, 8)).grid(row=2, column=0, columnspan=2, pady=(4, 0))
+        self.pause_window = c.create_window(px(WIDTH / 2), px(300), window=pause, state="hidden", tags=("pause",))
 
         # Session progress card
         self.card = c.create_polygon(*_round_rect(px(20), px(280), px(WIDTH - 20), px(HEIGHT - 20), px(16)),
-                                     smooth=True, outline="")
-        c.create_text(px(40), px(305), text="Session", anchor="w", fill=INK, font=(FONT, 10, "bold"))
+                                     smooth=True, outline="", tags=("session",))
+        c.create_text(px(40), px(305), text="Session", anchor="w", fill=INK, font=(FONT, 10, "bold"), tags=("session",))
         self.completed_text = c.create_text(px(WIDTH - 40), px(305), anchor="e", fill=INK_SOFT,
-                                            font=(FONT, 9))
-        self.step_text = c.create_text(px(WIDTH / 2), px(392), fill=INK, font=(FONT, 11, "bold"))
-        self.next_text = c.create_text(px(WIDTH / 2), px(414), fill=INK_SOFT, font=(FONT, 9))
+                                            font=(FONT, 9), tags=("session",))
+        self.step_text = c.create_text(px(WIDTH / 2), px(392), fill=INK, font=(FONT, 11, "bold"), tags=("session",))
+        self.next_text = c.create_text(px(WIDTH / 2), px(414), fill=INK_SOFT, font=(FONT, 9), tags=("session",))
         self.bar_bg = c.create_polygon(*_round_rect(px(40), px(440), px(WIDTH - 40), px(450), px(5)),
-                                       smooth=True, outline="")
-        self.bar = c.create_polygon(0, 0, 0, 0, smooth=True, outline="")
-        self.bar_text = c.create_text(px(WIDTH / 2), px(470), fill=INK_SOFT, font=(FONT, 9))
+                                       smooth=True, outline="", tags=("session",))
+        self.bar = c.create_polygon(0, 0, 0, 0, smooth=True, outline="", tags=("session",))
+        self.bar_text = c.create_text(px(WIDTH / 2), px(470), fill=INK_SOFT, font=(FONT, 9), tags=("session",))
+
+    def _clean_var(self, var: tk.StringVar) -> None:
+        """Keep entry text safe and bounded without swallowing a typed space."""
+        value = var.get()
+        cleaned = clean_text(value)
+        # `clean_text` trims by design. Preserve one pending space so a user can
+        # type the next word; committing the field applies the final trim.
+        if value and value[-1].isspace() and cleaned and len(cleaned) < TEXT_LIMIT:
+            cleaned += " "
+        if value != cleaned:
+            var.set(cleaned)
+
+    def _show_task_placeholder(self) -> None:
+        self.task_placeholder = True
+        self.task_var.set("What are you working on? (optional)")
+        self.task_entry.configure(fg=INK_SOFT)
+
+    def _task_text(self) -> str:
+        return "" if self.task_placeholder else clean_text(self.task_var.get())
+
+    def task_focus_in(self, _event=None) -> None:
+        if self.task_placeholder:
+            self.task_placeholder = False
+            self.task_var.set("")
+            self.task_entry.configure(fg=INK)
+
+    def task_focus_out(self, _event=None) -> None:
+        self.commit_task()
+        if not self.task_var.get():
+            self._show_task_placeholder()
+
+    def _set_task_layout(self) -> None:
+        """Show or hide the opt-in task controls without changing the default view."""
+        c, px = self.canvas, self.px
+        target = TASK_LAYOUT_HEIGHT if self.settings.work_log else 0
+        delta = target - self._task_layout_offset
+        if delta:
+            c.move("controls", 0, px(delta))
+            c.move("session", 0, px(delta))
+            self._task_layout_offset = target
+        c.configure(height=px(HEIGHT + target))
+        state = "normal" if self.settings.work_log else "hidden"
+        c.itemconfigure("task", state=state)
+        if not self.settings.work_log:
+            self.pause_panel_visible = False
+            c.itemconfigure(self.pause_window, state="hidden")
+        self._theme_mode = None
+
+    def _log(self, event: str, text: str = "") -> None:
+        if self.settings.work_log:
+            self.work_log.write(event, text)
+
+    def _stop_text(self) -> str:
+        ran = self.session.elapsed_minutes()
+        task = self._task_text()
+        return f"{ran} min – {task}" if task else f"{ran} min"
+
+    def _clear_note(self) -> None:
+        self.current_note = ""
+        self.canvas.itemconfigure(self.note_text, text="")
+
+    def commit_task(self, _event=None):
+        task = self._task_text()
+        if not self.task_placeholder:
+            self.task_var.set(task)
+        if task != self.committed_task:
+            if self.session.running and self.session.mode == POMODORO:
+                self._log("Switch", task)
+            self.committed_task = task
+        return "break" if _event is not None else None
+
+    def complete_task(self) -> None:
+        task = self._task_text()
+        if task:
+            self._log("Complete", task)
+            self.task_var.set("")
+            self.committed_task = ""
+            self._show_task_placeholder()
+
+    def show_pause_panel(self) -> None:
+        self.pause_var.set("")
+        self.pause_panel_visible = True
+        self.canvas.itemconfigure("controls", state="hidden")
+        self.canvas.itemconfigure(self.pause_window, state="normal")
+        self.pause_entry.focus_set()
+
+    def save_pause_note(self, _event=None):
+        note = clean_text(self.pause_var.get())
+        self.current_note = note
+        self.canvas.itemconfigure(self.note_text, text=f"↩ You were: {note}" if note else "")
+        self._log("Pause", note)
+        self.pause_panel_visible = False
+        self.canvas.itemconfigure(self.pause_window, state="hidden")
+        self.canvas.itemconfigure("controls", state="normal")
+        self.refresh()
+        return "break" if _event is not None else None
+
+    def cancel_pause_panel(self) -> None:
+        if not self.pause_panel_visible:
+            return
+        self.pause_var.set("")
+        self.save_pause_note()
 
     def _apply_theme(self, mode):
         """Redraw the sky gradient and recolor the card for a mode."""
         c, px = self.canvas, self.px
         top, horizon, accent = THEMES[mode]
         c.delete("sky")
-        h, w, step = px(HEIGHT), px(WIDTH), 2
+        h, w, step = int(c.cget("height")), px(WIDTH), 2
         for y in range(0, h, step):
             color = _blend(top, horizon, y / h)
             c.create_rectangle(0, y, w, y + step, fill=color, outline="", tags=("sky",))
@@ -438,7 +650,7 @@ class PomodoroApp:
         c, px = self.canvas, self.px
         c.delete("steps")
         steps, current = self.session.cycle_steps()
-        y, left, right = px(352), px(50), px(WIDTH - 50)
+        y, left, right = px(352 + self._task_layout_offset), px(50), px(WIDTH - 50)
         gap = (right - left) / max(1, len(steps) - 1)
         upcoming = _blend(self.card_color, INK, 0.15)
         c.create_line(left, y, right, y, fill=upcoming, width=max(1, px(2)), tags=("steps",))
@@ -458,7 +670,7 @@ class PomodoroApp:
     # --- settings view
     def _build_settings_view(self):
         px = self.px
-        f = self.settings_view = tk.Frame(self.root, bg=PANEL, width=px(WIDTH), height=px(HEIGHT))
+        f = self.settings_view = tk.Frame(self.root, bg=PANEL, width=px(WIDTH), height=px(HEIGHT + 80))
         f.pack_propagate(False)
         label = dict(bg=PANEL, fg=INK, font=(FONT, 10))
 
@@ -519,6 +731,15 @@ class PomodoroApp:
         row += 1
         spin("sound_seconds", "Sound length (sec)", 60)
 
+        section("WORK LOG")
+        self.work_log_var = tk.BooleanVar(value=self.settings.work_log)
+        tk.Checkbutton(body, text="Tasks and work log", variable=self.work_log_var, command=self.apply_settings,
+                       bg=PANEL, fg=INK, activebackground=PANEL, font=(FONT, 10),
+                       highlightthickness=0).grid(row=row, column=0, columnspan=2, sticky="w", pady=3)
+        row += 1
+        tk.Button(body, text="Open log folder", command=self.open_log_folder, bg="white", relief="flat",
+                  cursor="hand2").grid(row=row, column=0, columnspan=2, sticky="w", pady=3)
+
         footer = tk.Frame(f, bg=PANEL)
         footer.pack(side="bottom", fill="x", padx=28, pady=18)
         tk.Label(footer, text="Changes apply immediately and are saved\nwhen you go back.",
@@ -539,33 +760,64 @@ class PomodoroApp:
         self.view = "timer"
         self.refresh()
 
+    def open_log_folder(self) -> None:
+        try:
+            self.work_log.folder.mkdir(parents=True, exist_ok=True)
+            if hasattr(os, "startfile"):
+                os.startfile(self.work_log.folder)
+        except OSError:
+            pass
+
     # --- actions
     def toggle(self):
         self.stop_sound()
         if self.session.running:
             self.session.pause()
+            if self.settings.work_log and self.session.mode == POMODORO:
+                self.show_pause_panel()
         else:
+            fresh = self.session.remaining == self.session.duration()
             if self.session.finished:  # Start after time's up goes straight to the next period
                 self.session.advance()
+                fresh = True
             self.session.start()
+            if self.settings.work_log and self.session.mode == POMODORO:
+                if fresh:
+                    self.committed_task = self._task_text()
+                    self._log("Pomodoro", self.committed_task)
+                else:
+                    self.commit_task()
+                    self._log("Resume")
         self.refresh()
 
     def reset(self):
         self.stop_sound()
+        self.cancel_pause_panel()
+        if self.session.mode == POMODORO and self.session.remaining < self.session.duration() and not self.session.finished:
+            self._log("Stopped", self._stop_text())
         self.session.reset()
+        self._clear_note()
         self.refresh()
 
     def next_step(self):
         self.stop_sound()
+        self.cancel_pause_panel()
         finished = self.session.finished
+        if self.session.mode == POMODORO and self.session.remaining < self.session.duration() and not self.session.finished:
+            self._log("Stopped", self._stop_text())
         self.session.advance()
         if finished:  # Next (after time's up) starts the following period right away; Skip doesn't
             self.session.start()
+        self._clear_note()
         self.refresh()
 
     def select_mode(self, mode):
         self.stop_sound()
+        self.cancel_pause_panel()
+        if self.session.mode == POMODORO and self.session.remaining < self.session.duration() and not self.session.finished:
+            self._log("Stopped", self._stop_text())
         self.session.set_mode(mode)
+        self._clear_note()
         self.refresh()
 
     def read_settings(self) -> Settings | None:
@@ -576,7 +828,7 @@ class PomodoroApp:
         if any(v < 1 for v in values.values()):
             return None
         sound = next(k for k, (label, _) in SOUNDS.items() if label == self.sound_var.get())
-        return Settings(sound=sound, **values)
+        return Settings(sound=sound, work_log=self.work_log_var.get(), **values)
 
     def apply_settings(self):
         new = self.read_settings()
@@ -585,6 +837,7 @@ class PomodoroApp:
         old_duration = self.session.duration()
         for f in fields(Settings):
             setattr(self.settings, f.name, getattr(new, f.name))
+        self._set_task_layout()
         # Show a new duration right away if the timer hasn't been started in this period
         s = self.session
         if not s.running and not s.finished and s.remaining == old_duration:
@@ -596,10 +849,12 @@ class PomodoroApp:
         for name, var in self.vars.items():
             var.set(getattr(defaults, name))
         self.sound_var.set(SOUNDS[defaults.sound][0])
+        self.work_log_var.set(defaults.work_log)
         self.apply_settings()
 
     def on_close(self):
         self.stop_sound()
+        self.cancel_pause_panel()
         self.apply_settings()
         self.settings.save()
         self.root.destroy()
@@ -639,6 +894,9 @@ class PomodoroApp:
     # --- loop & rendering
     def update_loop(self):
         if self.session.tick():
+            if self.settings.work_log and self.session.mode == POMODORO:
+                self._log("Done", self._stop_text())
+                self._clear_note()
             self.alert()
         self.refresh()
         self.root.after(200, self.update_loop)
@@ -694,12 +952,13 @@ class PomodoroApp:
         c.itemconfigure(self.next_text, text=f"Next: {MODE_LABELS[upcoming]}")
         self._draw_steps()
 
+        offset = self._task_layout_offset
         x1, x2 = px(40), px(WIDTH - 40)
         fill_to = x1 + (x2 - x1) * s.progress()
         if fill_to - x1 < px(2):
             c.coords(self.bar, 0, 0, 0, 0)
         else:
-            c.coords(self.bar, *_round_rect(x1, px(440), fill_to, px(450), px(5)))
+            c.coords(self.bar, *_round_rect(x1, px(440 + offset), fill_to, px(450 + offset), px(5)))
         total = s.duration() / 60
         elapsed = total - s.remaining / 60
         c.itemconfigure(self.bar_text, text=f"{int(elapsed)} of {int(total)} min · {int(s.progress() * 100)}%")
