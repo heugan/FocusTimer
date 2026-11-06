@@ -80,14 +80,14 @@ class SessionTests(unittest.TestCase):
             indices.append(s.cycle_steps()[1])
         self.assertEqual(order, [POMODORO, SHORT, POMODORO, SHORT, POMODORO, SHORT, POMODORO, LONG, POMODORO])
         self.assertEqual(indices, [0, 1, 2, 3, 4, 5, 6, 7, 0])
-        self.assertEqual(s.completed_pomodoros, 4)
+        self.assertEqual(s.finished_pomodoros, 4)
         self.assertEqual(s.cycle_steps()[0], [POMODORO, SHORT] * 3 + [POMODORO, LONG])
 
     def test_finished_period_waits_for_next(self):
         s = self.session
         self.run_out()
         self.assertTrue(s.finished)
-        self.assertEqual((s.mode, s.completed_pomodoros, s.remaining), (POMODORO, 1, 0))
+        self.assertEqual((s.mode, s.finished_pomodoros, s.remaining), (POMODORO, 1, 0))
         s.start()  # nothing left to run
         self.assertFalse(s.running)
         s.advance()
@@ -98,7 +98,7 @@ class SessionTests(unittest.TestCase):
         s = self.session
         s.advance()
         self.assertEqual(s.mode, SHORT)
-        self.assertEqual(s.completed_pomodoros, 0)
+        self.assertEqual(s.finished_pomodoros, 0)
 
     def test_progress(self):
         s = self.session
@@ -254,9 +254,9 @@ class WorkLogAppTests(unittest.TestCase):
 
         self.clock.now += 125
         self.app.toggle()
-        self.assertTrue(self.app.pause_panel_visible)
-        self.app.pause_var.set("Section 3")
-        self.app.save_pause_note()
+        self.assertTrue(self.app.interruption_panel_visible)
+        self.app.note_var.set("Section 3")
+        self.app.save_note()
         self.assertEqual(self.log.events[-1], ("Pause", "Section 3"))
         self.assertIn("Section 3", self.app.canvas.itemcget(self.app.note_text, "text"))
 
@@ -310,8 +310,8 @@ class WorkLogAppTests(unittest.TestCase):
         self.assertEqual(self.app._task_text(), "Two words together")
         self.app.task_var.set("a\n" + "b" * 500)
         self.assertEqual(self.app._task_text(), "a " + "b" * 198)
-        self.app.pause_var.set("x | y\u202ez")
-        self.assertEqual(self.app.pause_var.get(), "x / yz")
+        self.app.note_var.set("x | y\u202ez")
+        self.assertEqual(self.app.note_var.get(), "x / yz")
 
     def test_task_ui_is_hidden_by_default_and_shown_when_enabled(self):
         self.app.settings.work_log = False
@@ -333,23 +333,23 @@ class WorkLogAppTests(unittest.TestCase):
             "Don't enter personal data – the log is stored unencrypted in Documents\\FocusTimer.",
         )
 
-    def test_pause_panel_shows_its_label_notice_and_state_changes(self):
+    def test_interruption_panel_shows_its_label_notice_and_state_changes(self):
         self.enter_task("Task")
         self.app.toggle()
         self.clock.now += 10
         self.app.toggle()
         self.root.update_idletasks()
-        self.assertTrue(self.app.pause_panel_visible)
-        self.assertEqual(self.app.canvas.itemcget(self.app.pause_window, "state"), "normal")
+        self.assertTrue(self.app.interruption_panel_visible)
+        self.assertEqual(self.app.canvas.itemcget(self.app.interruption_window, "state"), "normal")
         self.assertEqual(self.app.canvas.itemcget("controls", "state"), "hidden")
-        labels = [widget.cget("text") for widget in self.app.pause_panel.winfo_children()
+        labels = [widget.cget("text") for widget in self.app.interruption_panel.winfo_children()
                   if isinstance(widget, tk.Label)]
         self.assertIn("Where were you? (optional)", labels)
         self.assertIn("Don't enter personal data – the log is stored unencrypted in Documents\\FocusTimer.", labels)
 
-        self.app.cancel_pause_panel()
-        self.assertFalse(self.app.pause_panel_visible)
-        self.assertEqual(self.app.canvas.itemcget(self.app.pause_window, "state"), "hidden")
+        self.app.cancel_interruption_panel()
+        self.assertFalse(self.app.interruption_panel_visible)
+        self.assertEqual(self.app.canvas.itemcget(self.app.interruption_window, "state"), "hidden")
         self.assertEqual(self.app.canvas.itemcget("controls", "state"), "normal")
 
 

@@ -47,7 +47,7 @@ Removing Cf characters also removes ZWJ (U+200D), so combined emoji such as 👨
 - Any **future** export (CSV, HTML, Markdown, report) must escape for its own format. This is recorded in ADR-0007.
 
 ### Personal-data notice
-- A small grey text appears under the task field and in the pause panel:
+- A small grey text appears under the task field and in the interruption panel:
   **"Don't enter personal data – the log is stored unencrypted in Documents\FocusTimer."**
 
 ### Out of scope
@@ -59,7 +59,7 @@ Removing Cf characters also removes ZWJ (U+200D), so combined emoji such as 👨
 - [x] U+202E, NUL and zero-width characters do not reach the screen, `tasks.json` or the log
 - [x] `|` in user text is stored and logged as `/`
 - [x] åäö, accented letters and emoji are kept
-- [x] The personal-data notice is shown under the task field and in the pause panel
+- [x] The personal-data notice is shown under the task field and in the interruption panel
 
 ## Test requirements (table-driven `unittest`)
 | Input | Expected |

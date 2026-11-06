@@ -32,6 +32,7 @@ Everything here applies only when the work log feature ([SPEC-009](SPEC-009-task
   2. The new task becomes the current task.
   3. **The current pomodoro resumes and keeps running** with the new task. No new pomodoro is started.
   4. The log gets `[Park] <task> | You were: <note>` followed by `[Switch] <new task>`.
+- In the terms of [CONTEXT.md](../../CONTEXT.md), **Switch to…** is a **Park** followed by a **Switch**.
 - `Esc` cancels Switch to and leaves the Pomodoro interrupted.
 
 ### Design question to settle before implementation
@@ -43,10 +44,10 @@ The interruption note and the target task must not share an ambiguous meaning. T
 - The timer view shows one line while the stack is not empty:
   **"↩ Parked: <task> – You were: <note>"**, followed by **"(+N)"** when more are parked. Long text is cut with "…" to fit.
 - Clicking the line opens a small list of all parked tasks, showing task, note and how long ago each was parked. Each entry has:
-  - **Resume**: the entry becomes the current task and its note is shown as "↩ You were: …". If there was a current task, it is parked first without a note. The log gets `[Return] <task> | You were: <note>`. The timer is not affected.
+  - **Return**: the entry becomes the current task and its note is shown as "↩ You were: …". If there was a current task, it is parked first without a note. The log gets `[Return] <task> | You were: <note>`. The timer is not affected.
   - **Remove**: the entry is deleted without a confirmation step. Nothing is logged.
 - After **✓ Complete** (SPEC-009), if the stack is not empty, an inline suggestion appears in the timer view (not a modal dialog):
-  **"Back to <task>? You were: <note>"** with **Resume** and **Later**. Later hides the suggestion until the next Complete.
+  **"Back to <task>? You were: <note>"** with **Return** and **Later**. Later hides the suggestion until the next Complete.
 
 ### Persistence ([ADR-0008](../adr/ADR-0008-task-state-and-opt-in.md))
 - The current task, the current "You were" note and the parked stack are saved to `%APPDATA%\Pomodoro\tasks.json`, using the same folder as `settings.json`. The file is saved after every change and loaded at startup, so it survives restarts.
@@ -79,7 +80,7 @@ When the note is empty, the ` | You were: …` part is left out.
 - [ ] Interrupt, then Switch to with "Issue 789", parks the old task and note and resumes the same pomodoro with the remaining time unchanged
 - [ ] The log contains `[Park]` followed by `[Switch]` with the correct text
 - [ ] The "↩ Parked" line appears with "(+N)" when more than one task is parked
-- [ ] Resume from the list restores the task and note, parks the previous current task, and logs `[Return]`
+- [ ] Return from the list restores the task and note, parks the previous current task, and logs `[Return]`
 - [ ] Remove deletes the entry without logging
 - [ ] ✓ Complete with parked tasks shows the "Back to …?" suggestion, which Later hides
 - [ ] Parked tasks and the current task are still there after restarting the app
@@ -87,7 +88,7 @@ When the note is empty, the ` | You were: …` part is left out.
 - [ ] Parking more than 20 tasks drops the oldest
 
 ## Test requirements
-- Stack order for park and resume, including parking the current task on resume.
+- Stack order for park and return, including parking the current task on return.
 - The cap of 20 entries.
 - Save/load round trip using a temporary directory.
 - A corrupt or invalid file falls back to an empty state.

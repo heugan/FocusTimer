@@ -19,7 +19,7 @@ A **Session** card where the settings panel used to be:
 - Step track for one cycle (P S P S P S P L): large dots = pomodoros, small = short breaks, medium = long break, each in its mode's accent colour. Done steps filled, current step a ring, upcoming grey.
 - "Pomodoro 2 of 4" (or the break name) and "Next: …".
 - Progress bar of the current period with "9 of 25 min · 37%".
-- "Pomodoros completed: N" for this run of the app.
+- "Pomodoros finished: N" for this session (this run of the app).
 
 ## Acceptance criteria
 - [x] Track length follows the "Long break after" setting

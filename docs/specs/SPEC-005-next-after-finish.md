@@ -28,6 +28,6 @@ When a period ended the app silently jumped to the next mode, so you couldn't se
 - [x] Skip on an unfinished pomodoro still doesn't count it
 
 ## Notes
-Reset on a finished pomodoro restarts the same pomodoro; it stays counted.
+Reset on a finished pomodoro starts the next pomodoro straight away and skips the break; the finished one stays counted.
 
 **Changed by [SPEC-008](SPEC-008-next-auto-starts.md):** Next now also starts the next period.
