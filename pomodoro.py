@@ -271,7 +271,7 @@ class PomodoroSession:
         self.settings = settings
         self.clock = clock
         self.mode = POMODORO
-        self.completed_pomodoros = 0
+        self.finished_pomodoros = 0
         self.running = False
         self.finished = False  # current period ran to zero; waiting for Next
         self._remaining = self.duration()
@@ -310,7 +310,7 @@ class PomodoroSession:
         if self.mode != POMODORO:
             return POMODORO
         n = self.settings.pomodoros_before_long
-        return LONG if self.completed_pomodoros % n == 0 else SHORT
+        return LONG if self.finished_pomodoros % n == 0 else SHORT
 
     def advance(self) -> None:
         """Go to the next period: "Next" after a finished period, "Skip" otherwise.
@@ -330,7 +330,7 @@ class PomodoroSession:
             self.finished = True
             self._remaining = 0
             if self.mode == POMODORO:
-                self.completed_pomodoros += 1
+                self.finished_pomodoros += 1
             return True
         return False
 
@@ -348,7 +348,7 @@ class PomodoroSession:
         steps = []
         for i in range(n):
             steps += [POMODORO, LONG if i == n - 1 else SHORT]
-        done = self.completed_pomodoros
+        done = self.finished_pomodoros
         if self.mode == POMODORO:
             if self.finished:
                 done -= 1
@@ -411,7 +411,7 @@ class PomodoroApp:
         self._task_layout_offset = 0
         self.current_note = ""
         self.committed_task = ""
-        self.pause_panel_visible = False
+        self.interruption_panel_visible = False
 
         root.title("Pomodoro")
         root.resizable(False, False)
@@ -432,7 +432,7 @@ class PomodoroApp:
         root.bind("<space>", shortcut("timer", self.toggle))
         root.bind("<KeyPress-r>", shortcut("timer", self.reset))
         root.bind("<KeyPress-n>", shortcut("timer", self.next_step))
-        root.bind("<Escape>", lambda e: self.cancel_pause_panel() if self.pause_panel_visible else (
+        root.bind("<Escape>", lambda e: self.cancel_interruption_panel() if self.interruption_panel_visible else (
             self.show_timer() if self.view == "settings" else None))
         root.bind("<Return>", lambda e: self.apply_settings())
 
@@ -501,24 +501,24 @@ class PomodoroApp:
         self.note_text = c.create_text(px(WIDTH / 2), px(265), fill=INK_SOFT, font=(FONT, 9), tags=("task",))
         self._show_task_placeholder()
 
-        pause = self.pause_panel = tk.Frame(c, bg=PANEL)
-        self.pause_var = tk.StringVar()
-        self.pause_var.trace_add("write", lambda *_: self._clean_var(self.pause_var))
-        tk.Label(pause, text="Where were you? (optional)", bg=PANEL, fg=INK_SOFT,
+        panel = self.interruption_panel = tk.Frame(c, bg=PANEL)
+        self.note_var = tk.StringVar()
+        self.note_var.trace_add("write", lambda *_: self._clean_var(self.note_var))
+        tk.Label(panel, text="Where were you? (optional)", bg=PANEL, fg=INK_SOFT,
                  font=(FONT, 8)).grid(row=0, column=0, columnspan=2, sticky="w")
-        self.pause_entry = tk.Entry(pause, textvariable=self.pause_var, width=29, font=(FONT, 10))
-        self.pause_entry.grid(row=1, column=0, padx=(0, 6))
-        self.pause_entry.bind("<Return>", self.save_pause_note)
-        tk.Button(pause, text="Pause", command=self.save_pause_note, bg="white", relief="flat").grid(row=1, column=1)
-        tk.Label(pause, text="Don't enter personal data – the log is stored unencrypted in Documents\\FocusTimer.",
+        self.note_entry = tk.Entry(panel, textvariable=self.note_var, width=29, font=(FONT, 10))
+        self.note_entry.grid(row=1, column=0, padx=(0, 6))
+        self.note_entry.bind("<Return>", self.save_note)
+        tk.Button(panel, text="Pause", command=self.save_note, bg="white", relief="flat").grid(row=1, column=1)
+        tk.Label(panel, text="Don't enter personal data – the log is stored unencrypted in Documents\\FocusTimer.",
                  bg=PANEL, fg=INK_SOFT, font=(FONT, 8)).grid(row=2, column=0, columnspan=2, pady=(4, 0))
-        self.pause_window = c.create_window(px(WIDTH / 2), px(300), window=pause, state="hidden", tags=("pause",))
+        self.interruption_window = c.create_window(px(WIDTH / 2), px(300), window=panel, state="hidden", tags=("interruption",))
 
         # Session progress card
         self.card = c.create_polygon(*_round_rect(px(20), px(280), px(WIDTH - 20), px(HEIGHT - 20), px(16)),
                                      smooth=True, outline="", tags=("session",))
         c.create_text(px(40), px(305), text="Session", anchor="w", fill=INK, font=(FONT, 10, "bold"), tags=("session",))
-        self.completed_text = c.create_text(px(WIDTH - 40), px(305), anchor="e", fill=INK_SOFT,
+        self.finished_text = c.create_text(px(WIDTH - 40), px(305), anchor="e", fill=INK_SOFT,
                                             font=(FONT, 9), tags=("session",))
         self.step_text = c.create_text(px(WIDTH / 2), px(392), fill=INK, font=(FONT, 11, "bold"), tags=("session",))
         self.next_text = c.create_text(px(WIDTH / 2), px(414), fill=INK_SOFT, font=(FONT, 9), tags=("session",))
@@ -570,8 +570,8 @@ class PomodoroApp:
         state = "normal" if self.settings.work_log else "hidden"
         c.itemconfigure("task", state=state)
         if not self.settings.work_log:
-            self.pause_panel_visible = False
-            c.itemconfigure(self.pause_window, state="hidden")
+            self.interruption_panel_visible = False
+            c.itemconfigure(self.interruption_window, state="hidden")
         self._theme_mode = None
 
     def _log(self, event: str, text: str = "") -> None:
@@ -605,29 +605,29 @@ class PomodoroApp:
             self.committed_task = ""
             self._show_task_placeholder()
 
-    def show_pause_panel(self) -> None:
-        self.pause_var.set("")
-        self.pause_panel_visible = True
+    def show_interruption_panel(self) -> None:
+        self.note_var.set("")
+        self.interruption_panel_visible = True
         self.canvas.itemconfigure("controls", state="hidden")
-        self.canvas.itemconfigure(self.pause_window, state="normal")
-        self.pause_entry.focus_set()
+        self.canvas.itemconfigure(self.interruption_window, state="normal")
+        self.note_entry.focus_set()
 
-    def save_pause_note(self, _event=None):
-        note = clean_text(self.pause_var.get())
+    def save_note(self, _event=None):
+        note = clean_text(self.note_var.get())
         self.current_note = note
         self.canvas.itemconfigure(self.note_text, text=f"↩ You were: {note}" if note else "")
         self._log("Pause", note)
-        self.pause_panel_visible = False
-        self.canvas.itemconfigure(self.pause_window, state="hidden")
+        self.interruption_panel_visible = False
+        self.canvas.itemconfigure(self.interruption_window, state="hidden")
         self.canvas.itemconfigure("controls", state="normal")
         self.refresh()
         return "break" if _event is not None else None
 
-    def cancel_pause_panel(self) -> None:
-        if not self.pause_panel_visible:
+    def cancel_interruption_panel(self) -> None:
+        if not self.interruption_panel_visible:
             return
-        self.pause_var.set("")
-        self.save_pause_note()
+        self.note_var.set("")
+        self.save_note()
 
     def _apply_theme(self, mode):
         """Redraw the sky gradient and recolor the card for a mode."""
@@ -774,7 +774,7 @@ class PomodoroApp:
         if self.session.running:
             self.session.pause()
             if self.settings.work_log and self.session.mode == POMODORO:
-                self.show_pause_panel()
+                self.show_interruption_panel()
         else:
             fresh = self.session.remaining == self.session.duration()
             if self.session.finished:  # Start after time's up goes straight to the next period
@@ -792,7 +792,7 @@ class PomodoroApp:
 
     def reset(self):
         self.stop_sound()
-        self.cancel_pause_panel()
+        self.cancel_interruption_panel()
         if self.session.mode == POMODORO and self.session.remaining < self.session.duration() and not self.session.finished:
             self._log("Stopped", self._stop_text())
         self.session.reset()
@@ -801,7 +801,7 @@ class PomodoroApp:
 
     def next_step(self):
         self.stop_sound()
-        self.cancel_pause_panel()
+        self.cancel_interruption_panel()
         finished = self.session.finished
         if self.session.mode == POMODORO and self.session.remaining < self.session.duration() and not self.session.finished:
             self._log("Stopped", self._stop_text())
@@ -813,7 +813,7 @@ class PomodoroApp:
 
     def select_mode(self, mode):
         self.stop_sound()
-        self.cancel_pause_panel()
+        self.cancel_interruption_panel()
         if self.session.mode == POMODORO and self.session.remaining < self.session.duration() and not self.session.finished:
             self._log("Stopped", self._stop_text())
         self.session.set_mode(mode)
@@ -854,7 +854,7 @@ class PomodoroApp:
 
     def on_close(self):
         self.stop_sound()
-        self.cancel_pause_panel()
+        self.cancel_interruption_panel()
         self.apply_settings()
         self.settings.save()
         self.root.destroy()
@@ -942,13 +942,13 @@ class PomodoroApp:
         # Session progress
         n = self.settings.pomodoros_before_long
         steps, index = s.cycle_steps()
-        c.itemconfigure(self.completed_text, text=f"Pomodoros completed: {s.completed_pomodoros}")
+        c.itemconfigure(self.finished_text, text=f"Pomodoros finished: {s.finished_pomodoros}")
         if s.mode == POMODORO:
             c.itemconfigure(self.step_text, text=f"Pomodoro {index // 2 + 1} of {n}")
         else:
             c.itemconfigure(self.step_text, text=label)
         upcoming = s.next_mode() if s.finished or s.mode != POMODORO else (
-            LONG if (s.completed_pomodoros + 1) % n == 0 else SHORT)
+            LONG if (s.finished_pomodoros + 1) % n == 0 else SHORT)
         c.itemconfigure(self.next_text, text=f"Next: {MODE_LABELS[upcoming]}")
         self._draw_steps()
 

@@ -1,6 +1,6 @@
 ---
 id: SPEC-009
-title: Current task, pause note and work log (opt-in)
+title: Current task, interruption note and work log (opt-in)
 status: Done
 priority: High
 labels: [logic, ui, settings, log]
@@ -9,7 +9,7 @@ completed: 2026-10-15
 adr: [ADR-0002, ADR-0007, ADR-0008]
 ---
 
-# SPEC-009: Current task, pause note and work log (opt-in)
+# SPEC-009: Current task, interruption note and work log (opt-in)
 
 ## Problem
 Users want two things from the timer:
@@ -24,7 +24,7 @@ Some users only want a plain timer, so the feature must be optional.
 - New setting `work_log: bool = False`, shown in the settings view in a new section **WORK LOG** below SOUND:
   - Checkbox **"Tasks and work log"**.
   - Button **"Open log folder"** opens the log folder in Explorer, creating it first if needed.
-- **Off:** the app behaves exactly as it does today. No task UI, no pause panel, nothing is written to disk except the existing settings file.
+- **Off:** the app behaves exactly as it does today. No task UI, no interruption panel, nothing is written to disk except the existing settings file.
 - **On:** everything below is enabled. Switching it off hides the UI and stops logging. Files already written are kept.
 
 ### Current task (timer view, only when the feature is on)
@@ -34,7 +34,7 @@ Some users only want a plain timer, so the feature must be optional.
 - A small grey notice under the field reads: **"Don't enter personal data – the log is stored unencrypted in Documents\FocusTimer."**
 - All free text follows [SPEC-011](SPEC-011-safe-text-input.md), including the 200-character limit and sanitising.
 
-### Pause note (Pomodoro mode only)
+### Interruption note (Pomodoro mode only)
 - Clicking **Pause** while a pomodoro is running pauses the timer immediately, as today. An inline panel then appears with:
   - The text field **"Where were you? (optional)"**.
   - **Pause** (also `Enter`): saves the note and closes the panel.
@@ -84,7 +84,7 @@ Some users only want a plain timer, so the feature must be optional.
 - [x] An existing settings file without `work_log` loads with the feature off
 - [x] Turning it on shows the task field, the ✓ button and the personal-data notice
 - [x] "Open log folder" opens `<Documents>\FocusTimer` and creates it if it is missing
-- [x] Pausing a running pomodoro shows the pause panel; `Enter` saves the note and `Esc` skips it
+- [x] Pausing a running pomodoro shows the interruption panel; `Enter` saves the note and `Esc` skips it
 - [x] "↩ You were: …" is shown after resuming until the pomodoro is done or stopped
 - [x] Every event in the table writes exactly one line in the given format to the correct monthly file
 - [x] Done and Stopped report the minutes actually run, with paused time excluded
@@ -110,4 +110,4 @@ Some users only want a plain timer, so the feature must be optional.
 - The real Documents folder can be found with `SHGetKnownFolderPath(FOLDERID_Documents)` through `ctypes`, falling back to `~/Documents`. Open the folder with `os.startfile`.
 
 ## Definition of done
-Code, tests and docs in one PR: this spec's status set to `Done` and its boxes ticked, the board in `docs/specs/README.md` updated, and the README features and shortcuts updated. Include screenshots of the timer view with the feature on and off, and of the pause panel.
+Code, tests and docs in one PR: this spec's status set to `Done` and its boxes ticked, the board in `docs/specs/README.md` updated, and the README features and shortcuts updated. Include screenshots of the timer view with the feature on and off, and of the interruption panel.
